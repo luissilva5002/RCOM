@@ -11,6 +11,8 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <signal.h>
+
 #define _POSIX_SOURCE 1 // POSIX compliant source
 
 #define FALSE 0
@@ -21,7 +23,7 @@
 
 const unsigned char FLAG = 0X7E;
 const unsigned char A1 = 0x03;
-const unsigned char C1 = 0x01;
+const unsigned char C1 = 0x03;
 const unsigned char BCC1 = A1 ^ C1;
 
 unsigned char BUFF[5] = {FLAG, A1, C1, BCC1, FLAG};
@@ -64,23 +66,34 @@ int main(int argc, char *argv[])
 
     printf("Serial port %s opened\n", serialPort);
 
-    // Create string to send
-    /*
-    unsigned char buf[BUF_SIZE] = {0};
-
-    for (int i = 0; i < BUF_SIZE; i++)
-    {
-        buf[i] = 'a' + i % 26;
-    }
-    */
-
     // In non-canonical mode, '\n' does not end the writing.
     // Test this condition by placing a '\n' in the middle of the buffer.
     // The whole buffer must be sent even with the '\n'.
     // buf[5] = '\n';
+    int alarmCount = 0;
+    int nBytesBuf = 0;
 
-    int bytes = writeBytesSerialPort(BUFF, BUF_SIZE);
-    printf("%d bytes written to serial port\n", bytes);
+    while(alarmCount < 3){
+        int bytes = writeBytesSerialPort(BUFF, BUF_SIZE);
+        nBytesBuf++;
+        printf("%d bytes written to serial port\n", bytes);
+
+        // init alarm
+        alarm(3);
+
+        // wait
+        unsigned char byte;
+        int UA = readByteSerialPort(&byte); 
+        printf("var = 0x%02X\n", byte);
+
+        // Break if we get a response
+        if (nBytesBuf == 5){
+            printf("error code = %d\n", UA);
+            alarm(0);
+            break;
+        }
+
+    }
 
     // Wait until all bytes have been written to the serial port
     sleep(1);
