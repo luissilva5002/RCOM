@@ -17,7 +17,15 @@
 #define TRUE 1
 
 #define BAUDRATE 38400
-#define BUF_SIZE 256
+#define BUF_SIZE 5
+
+const unsigned char FLAG = 0x07E;
+const unsigned char A1 = 0x03;
+const unsigned char C1 = 0x07;
+const unsigned char BCC1 = A1 ^ C1;
+
+unsigned char BUFF[5] = {FLAG, A1, C1, BCC1};
+ 
 
 int fd = -1;           // File descriptor for open serial port
 struct termios oldtio; // Serial port settings to restore on closing
@@ -73,8 +81,15 @@ int main(int argc, char *argv[])
         unsigned char byte;
         int bytes = readByteSerialPort(&byte);
         nBytesBuf += bytes;
+        
+        if (nBytesBuf == 5){
+            int bytesUA = writeBytesSerialPort(BUFF, BUF_SIZE);
+            printf("sent with %d\n", bytes);
+            printf("sent with %d\n", bytesUA);
+        }
 
-        printf("Byte received: %c\n", byte);
+        //printf("Byte received: %c\n", byte);
+        printf("var = 0x%02X\n", byte);
 
         if (byte == 'z')
         {
