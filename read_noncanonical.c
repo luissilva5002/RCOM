@@ -24,7 +24,7 @@ const unsigned char A1 = 0x03;
 const unsigned char C1 = 0x07;
 const unsigned char BCC1 = A1 ^ C1;
 
-unsigned char BUFF[5] = {FLAG, A1, C1, BCC1};
+unsigned char BUFF[5] = {FLAG, A1, C1, BCC1, FLAG};
  
 
 int fd = -1;           // File descriptor for open serial port
