@@ -1,21 +1,118 @@
-// Serial port interface implementation
-// DO NOT CHANGE THIS FILE
-
-#include "serial_port.h"
+// Example of how to write to the serial port in non-canonical mode
+//
+// Modified by: Eduardo Nuno Almeida [enalmeida@fe.up.pt]
 
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
 
-// MISC
+#include <signal.h>
+
 #define _POSIX_SOURCE 1 // POSIX compliant source
+
+#define FALSE 0
+#define TRUE 1
+
+#define BAUDRATE 38400
+#define BUF_SIZE 5
+
+const unsigned char FLAG = 0X7E;
+const unsigned char A1 = 0x03;
+const unsigned char C1 = 0x03;
+const unsigned char BCC1 = A1 ^ C1;
+
+unsigned char BUFF[5] = {FLAG, A1, C1, BCC1, FLAG};
 
 int fd = -1;           // File descriptor for open serial port
 struct termios oldtio; // Serial port settings to restore on closing
+volatile int STOP = FALSE;
+
+int openSerialPort(const char *serialPort, int baudRate);
+int closeSerialPort();
+int readByteSerialPort(unsigned char *byte);
+int writeBytesSerialPort(const unsigned char *bytes, int nBytes);
+
+// ---------------------------------------------------
+// MAIN
+// ---------------------------------------------------
+int main(int argc, char *argv[])
+{
+    if (argc < 2)
+    {
+        printf("Incorrect program usage\n"
+               "Usage: %s <SerialPort>\n"
+               "Example: %s /dev/ttyS0\n",
+               argv[0],
+               argv[0]);
+        exit(1);
+    }
+
+    // Open serial port device for reading and writing, and not as controlling tty
+    // because we don't want to get killed if linenoise sends CTRL-C.
+    //
+    // NOTE: See the implementation of the serial port library in "serial_port/".
+    const char *serialPort = argv[1];
+
+    if (openSerialPort(serialPort, BAUDRATE) < 0)
+    {
+        perror("openSerialPort");
+        exit(-1);
+    }
+
+    printf("Serial port %s opened\n", serialPort);
+
+    // In non-canonical mode, '\n' does not end the writing.
+    // Test this condition by placing a '\n' in the middle of the buffer.
+    // The whole buffer must be sent even with the '\n'.
+    // buf[5] = '\n';
+    int alarmCount = 0;
+    int nBytesBuf = 0;
+
+    while(alarmCount < 3){
+        int bytes = writeBytesSerialPort(BUFF, BUF_SIZE);
+        nBytesBuf++;
+        printf("%d bytes written to serial port\n", bytes);
+
+        // init alarm
+        alarm(3);
+
+        // wait
+        unsigned char byte;
+        int UA = readByteSerialPort(&byte); 
+        printf("var = 0x%02X\n", byte);
+
+        // Break if we get a response
+        if (nBytesBuf == 5){
+            printf("error code = %d\n", UA);
+            alarm(0);
+            break;
+        }
+
+    }
+
+    // Wait until all bytes have been written to the serial port
+    sleep(1);
+
+    // Close serial port
+    if (closeSerialPort() < 0)
+    {
+        perror("closeSerialPort");
+        exit(-1);
+    }
+
+    printf("Serial port %s closed\n", serialPort);
+
+    return 0;
+}
+
+// ---------------------------------------------------
+// SERIAL PORT LIBRARY IMPLEMENTATION
+// ---------------------------------------------------
 
 // Open and configure the serial port.
 // Returns -1 on error.
