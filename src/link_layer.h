@@ -1,6 +1,8 @@
 // Link layer header.
 // DO NOT CHANGE THIS FILE
 
+#include <stdbool.h>
+
 #ifndef _LINK_LAYER_H_
 #define _LINK_LAYER_H_
 
@@ -55,7 +57,7 @@ typedef struct
 #define FALSE 0
 #define TRUE 1
 
-int stateMachine(unsigned char byte, unsigned char control);
+bool stateMachine(unsigned char control);
 
 // Open a connection using the "port" parameters defined in struct linkLayer.
 // Return 0 on success or -1 on error.

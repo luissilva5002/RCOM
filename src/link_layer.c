@@ -5,6 +5,7 @@
 
 
 #include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
@@ -36,40 +37,56 @@ void alarmHandler(int signo)
 
 typedef enum { START, FLAG_RCV, A_RCV, C_RCV, BCC_OK } State;
 
-int stateMachine(unsigned char byte, unsigned char control, unsigned char state)
-{
+bool stateMachine(unsigned char control) {
+    unsigned char byte;
+    unsigned char state = 1;
 
-//Todo: Revise this function
+    while (1) {
 
-    switch (state)
-    {
-        case 1:
-            if (byte == FLAG) return 2;
-            printf("curent: 0x%02X\n", state);
-        case 2:
-            if (byte == A1) return 3;
-            else return 1;
-            printf("curent: 0x%02X\n", state);
+        int r = readByteSerialPort(&byte);
+        printf("Read byte: 0x%02X | Current state: %d\n", byte, state);
 
-        case 3:
-            if (byte == control) return 4;
-            else if (byte == FLAG) state = FLAG_RCV;
-            else return 1;
-            printf("curent: 0x%02X\n", state);
+        switch (state) {
+            case 1: // START
+                if (byte == FLAG)
+                    state = 2;
+                break;
 
-        case 4:
-            if (byte == (A1 ^ control)) return 5;
-            else if (byte == FLAG) return 2;
-            else return 1;
-            printf("curent: 0x%02X\n", state);
+            case 2: // FLAG_RCV
+                if (byte == A1)
+                    state = 3;
+                else if (byte != FLAG)
+                    state = 1;
+                break;
 
-        case 5:
-            if (byte == FLAG) {
-                return 2;
-            } else return 1;
-            printf("curent: 0x%02X\n", state);
+            case 3: // A_RCV
+                if (byte == control)
+                    state = 4;
+                else if (byte == FLAG)
+                    state = 2;
+                else
+                    state = 1;
+                break;
+
+            case 4: // C_RCV
+                if (byte == (A1 ^ control))
+                    state = 5;
+                else if (byte == FLAG)
+                    state = 2;
+                else
+                    state = 1;
+                break;
+
+            case 5: // BCC_OK
+                if (byte == FLAG) {
+                    printf("✅ Valid frame detected!\n");
+                    return true; // success
+                } else {
+                    state = 1;
+                }
+                break;
+        }
     }
-    return FALSE;
 }
 
 ////////////////////////////////////////////////
@@ -107,8 +124,7 @@ int llopen(LinkLayer connectionParameters)
 
             unsigned char byte;
             while (!TIMEOUT && !UA_received) {
-                int r = readByteSerialPort(&byte);
-                if (r > 0 && stateMachine(byte, C2)) {
+                if (stateMachine(C2)) {
                     printf("UA frame received. Connection established!\n");
                     UA_received = 1;
                     alarm(0);
@@ -130,8 +146,7 @@ int llopen(LinkLayer connectionParameters)
         int connected = 0;
 
         while (!connected) {
-            int r = readByteSerialPort(&byte);
-            if (r > 0 && stateMachine(byte, C1)) {
+            if (stateMachine(C1)) {
                 printf("SET frame received. Sending UA...\n");
                 writeBytesSerialPort(BUFF_UA, BUF_SIZE);
                 printf("UA sent. Connection established!\n");

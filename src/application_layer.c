@@ -55,9 +55,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             unsigned char byte;
             while (TIMEOUT == FALSE && UA_received == FALSE)
             {
-                int r = readByteSerialPort(&byte);
-                printf("Read: %d bytes \n", r);
-                if (r > 0 && stateMachine(byte, C1))
+                if (stateMachine(C1))
                 {
                     printf("UA frame received. Connection established!\n");
                     UA_received = TRUE;
@@ -84,16 +82,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         while (!connected)
         {
-            int r = readByteSerialPort(&byte);
-            printf("Read %d bytes\n", r);
-            printf("state machine is : %d\n", stateMachine(byte, C2));
-
-            if (r > 0 && stateMachine(byte, C2))
+            if (stateMachine(C1))
             {
                 printf("SET frame received. Sending UA...\n");
                 writeBytesSerialPort(BUFF_UA, BUF_SIZE);
                 printf("UA sent. Connection established!\n");
-                if (&byte)
                 connected = TRUE;
             }
         }
