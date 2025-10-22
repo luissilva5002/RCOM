@@ -42,8 +42,9 @@ bool stateMachine(unsigned char control) {
     unsigned char state = 1;
 
     while (1) {
-
         int r = readByteSerialPort(&byte);
+        if (r <= 0) continue;
+
         printf("Read byte: 0x%02X | Current state: %d\n", byte, state);
 
         switch (state) {
@@ -89,6 +90,19 @@ bool stateMachine(unsigned char control) {
     }
 }
 
+// --- Transmitter and Receiver versions ---
+bool transmitterStateMachine() {
+    unsigned char control = C2; // control for transmitter
+    printf("🚀 Starting Transmitter State Machine\n");
+    return stateMachine(control);
+}
+
+bool receiverStateMachine() {
+    unsigned char control = C1; // control for receiver
+    printf("📡 Starting Receiver State Machine\n");
+    return stateMachine(control);
+}
+
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
@@ -124,7 +138,7 @@ int llopen(LinkLayer connectionParameters)
 
             unsigned char byte;
             while (!TIMEOUT && !UA_received) {
-                if (stateMachine(C2)) {
+                if (transmitterStateMachine()) {
                     printf("UA frame received. Connection established!\n");
                     UA_received = 1;
                     alarm(0);
@@ -146,7 +160,7 @@ int llopen(LinkLayer connectionParameters)
         int connected = 0;
 
         while (!connected) {
-            if (stateMachine(C1)) {
+            if (receiverStateMachine()) {
                 printf("SET frame received. Sending UA...\n");
                 writeBytesSerialPort(BUFF_UA, BUF_SIZE);
                 printf("UA sent. Connection established!\n");
