@@ -23,14 +23,14 @@ unsigned char BUFF_SET[BUF_SIZE] = {FLAG, A1, C1, BCC1, FLAG};
 unsigned char BUFF_UA[BUF_SIZE]  = {FLAG, A1, C2, BCC2, FLAG};
 
 
-volatile int TIMEOUT = 0;
+volatile int TIMEOUT = FALSE;
 volatile int UA_received = 0;
 int alarmCount = 0;
 
 
 void alarmHandler(int signo)
 {
-    TIMEOUT = 1;
+    TIMEOUT = TRUE;
     alarmCount++;
     printf("Timeout! Tentativa %d\n", alarmCount);
 }
@@ -42,7 +42,6 @@ bool txstateMachine() {
     unsigned char control = C2;
     unsigned char state = 1;
 
-    tcflush(fd, TCIOFLUSH);
 
     while (1) {
         int r = readByteSerialPort(&byte);
@@ -98,7 +97,6 @@ bool rxstateMachine() {
     unsigned char control = C1;
     unsigned char state = 1;
 
-    tcflush(fd, TCIOFLUSH);
 
     while (1) {
         int r = readByteSerialPort(&byte);
