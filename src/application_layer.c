@@ -55,7 +55,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             unsigned char byte;
             while (TIMEOUT == FALSE && UA_received == FALSE)
             {
-                if (stateMachine(C1))
+                if (txstateMachine())
                 {
                     printf("UA frame received. Connection established!\n");
                     UA_received = TRUE;
@@ -82,7 +82,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         while (!connected)
         {
-            if (stateMachine(C1))
+            if (rxstateMachine(C1))
             {
                 printf("SET frame received. Sending UA...\n");
                 writeBytesSerialPort(BUFF_UA, BUF_SIZE);

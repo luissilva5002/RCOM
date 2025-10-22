@@ -57,7 +57,8 @@ typedef struct
 #define FALSE 0
 #define TRUE 1
 
-bool stateMachine(unsigned char control);
+bool rxstateMachine();
+bool txstateMachine();
 
 // Open a connection using the "port" parameters defined in struct linkLayer.
 // Return 0 on success or -1 on error.
