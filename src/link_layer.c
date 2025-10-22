@@ -42,6 +42,8 @@ bool txstateMachine() {
     unsigned char control = C2;
     unsigned char state = 1;
 
+    tcflush(fd, TCIOFLUSH);
+
     while (1) {
         int r = readByteSerialPort(&byte);
         if (r <= 0) continue;
@@ -95,6 +97,8 @@ bool rxstateMachine() {
     unsigned char byte;
     unsigned char control = C1;
     unsigned char state = 1;
+
+    tcflush(fd, TCIOFLUSH);
 
     while (1) {
         int r = readByteSerialPort(&byte);
@@ -173,17 +177,17 @@ int llopen(LinkLayer connectionParameters)
         UA_received = 0;
 
         while (alarmCount < connectionParameters.nRetransmissions && UA_received == 0) {
-            writeBytesSerialPort(BUFF_SET, BUF_SIZE);
-            printf("SET frame sent\n");
+            int nbytes = writeBytesSerialPort(BUFF_SET, BUF_SIZE);
+            printf("SET frame sent: %d bytes\n", nbytes);
 
-            TIMEOUT = 0;
+            TIMEOUT = FALSE;
             alarm(connectionParameters.timeout);
 
             unsigned char byte;
             while (!TIMEOUT && !UA_received) {
                 if (txstateMachine()) {
                     printf("UA frame received. Connection established!\n");
-                    UA_received = 1;
+                    UA_received = TRUE;
                     alarm(0);
                 }
             }
@@ -197,6 +201,9 @@ int llopen(LinkLayer connectionParameters)
             return -1;
         }
     }
+    // -----------------------------
+    // RECEIVER
+    // -----------------------------
     else if (connectionParameters.role == LlRx) {
         printf("Receiver: waiting for SET frame...\n");
         unsigned char byte;

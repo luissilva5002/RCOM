@@ -12,11 +12,55 @@
 #include <unistd.h>
 #include <termios.h>
 
+void applicationLayer(const char *serialPort, const char *role, int baudRate,
+                      int nTries, int timeout, const char *filename)
+{
+    // Prepare the LinkLayer connection parameters struct
+    LinkLayer connectionParameters;
+    memset(&connectionParameters, 0, sizeof(LinkLayer));
 
+    // Copy serial port path
+    strncpy(connectionParameters.serialPort, serialPort, sizeof(connectionParameters.serialPort) - 1);
+
+    // Convert role string ("tx" or "rx") into LinkLayerRole enum
+    if (strcmp(role, "tx") == 0)
+        connectionParameters.role = LlTx;
+    else if (strcmp(role, "rx") == 0)
+        connectionParameters.role = LlRx;
+    else {
+        fprintf(stderr, "❌ Invalid role '%s'. Use 'tx' or 'rx'.\n", role);
+        exit(1);
+    }
+
+    // Set remaining parameters
+    connectionParameters.baudRate = baudRate;
+    connectionParameters.nRetransmissions = nTries;
+    connectionParameters.timeout = timeout;
+
+    printf("🔧 Opening link-layer connection on port %s as %s...\n", connectionParameters.serialPort, connectionParameters.role == LlTx ? "Transmitter" : "Receiver");
+
+    // Call llopen() from link layer
+    int fd = llopen(connectionParameters);
+    if (fd < 0) {
+        fprintf(stderr, "❌ Failed to open link-layer connection.\n");
+        exit(1);
+    }
+
+    printf("✅ Link-layer connection established successfully!\n");
+
+    // Close the link when done
+    llclose();
+    printf("🔒 Connection closed.\n");
+}
+
+
+
+/*
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
 {
+    
     if (openSerialPort(serialPort, baudRate) < 0)
     {
         perror("openSerialPort");
@@ -99,4 +143,4 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     alarm(0);
     closeSerialPort();
     printf("Serial port %s closed\n", serialPort);
-}
+    */
