@@ -17,86 +17,29 @@
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
 {
-    if (openSerialPort(serialPort, baudRate) < 0)
-    {
-        perror("openSerialPort");
-        exit(-1);
-    }
+    LinkLayer connectionParameters;
+    memset(&connectionParameters, 0, sizeof(connectionParameters));
 
-    printf("Serial port %s opened as %s\n", serialPort, role);
+    // Fill connection parameters
+    strcpy(connectionParameters.serialPort, serialPort);
+    connectionParameters.baudRate = baudRate;
+    connectionParameters.nRetransmissions = nTries;
+    connectionParameters.timeout = timeout;
+    connectionParameters.role = (strcmp(role, "tx") == 0) ? LlTx : LlRx;
 
-    struct sigaction act;
-    memset(&act, 0, sizeof(act));
-    act.sa_handler = alarmHandler;
-    if (sigaction(SIGALRM, &act, NULL) == -1)
-    {
-        perror("sigaction");
-        closeSerialPort();
+    // Open the data link layer connection
+    printf("Opening connection on %s as %s...\n", serialPort, role);
+    int status = llopen(connectionParameters);
+
+    if (status < 0) {
+        fprintf(stderr, "Error: Failed to establish link layer connection.\n");
         exit(1);
     }
 
-    // -----------------------------
-    // TRANSMITTER
-    // -----------------------------
-    if (strcmp(role, "tx") == 0)
-    {
-        printf("Transmitter: sending SET frame...\n");
-        alarmCount = 0;
-        UA_received = FALSE;
+    printf("Link layer connection established successfully!\n");
 
-        while (alarmCount < nTries && UA_received == FALSE)
-        {
-            int nbytes = writeBytesSerialPort(BUFF_SET, BUF_SIZE);
-            printf("SET frame sent: %d bytes\n", nbytes);
-
-            TIMEOUT = FALSE;
-            alarm(timeout);
-
-            unsigned char byte;
-            while (TIMEOUT == FALSE && UA_received == FALSE)
-            {
-                if (txstateMachine())
-                {
-                    printf("UA frame received. Connection established!\n");
-                    UA_received = TRUE;
-                    alarm(0);
-                }
-            }
-
-            if (!UA_received)
-                printf("No UA received, retrying...\n");
-        }
-
-        if (!UA_received)
-            printf("Failed to receive UA after %d attempts.\n", alarmCount);
-    }
-
-    // -----------------------------
-    // RECEIVER
-    // -----------------------------
-    else if (strcmp(role, "rx") == 0)
-    {
-        printf("Receiver: waiting for SET frame...\n");
-        unsigned char byte;
-        int connected = FALSE;
-
-        while (!connected)
-        {
-            if (rxstateMachine(C1))
-            {
-                printf("SET frame received. Sending UA...\n");
-                writeBytesSerialPort(BUFF_UA, BUF_SIZE);
-                printf("UA sent. Connection established!\n");
-                connected = TRUE;
-            }
-        }
-    }
-    else
-    {
-        printf("Invalid role. Use 'tx' or 'rx'.\n");
-    }
-
-    alarm(0);
-    closeSerialPort();
-    printf("Serial port %s closed\n", serialPort);
+    // Close connection
+    printf("Closing connection...\n");
+    llclose(connectionParameters);
+    printf("Connection closed.\n");
 }
