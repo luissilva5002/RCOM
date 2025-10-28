@@ -23,26 +23,26 @@ unsigned char BUFF_SET[BUF_SIZE] = {FLAG, A1, C1, BCC1, FLAG};
 unsigned char BUFF_UA[BUF_SIZE]  = {FLAG, A1, C2, BCC2, FLAG};
 
 
-volatile int TIMEOUT = 0;
+volatile bool timeout = FALSE;
 volatile int UA_received = 0;
 int alarmCount = 0;
 
 
 void alarmHandler(int signo)
 {
-    TIMEOUT = 1;
+    timeout = TRUE;
     alarmCount++;
     printf("Timeout! Tentativa %d\n", alarmCount);
 }
 
 typedef enum { START, FLAG_RCV, A_RCV, C_RCV, BCC_OK } State;
 
-bool stateMachine(unsigned char control)
+bool stateMachine(unsigned char controll)
 {
     unsigned char byte;
     unsigned char state = 1;
 
-    while (1)
+    while ((!timeout && (controll == C2)) || (controll == C1))
     {
         int r = readByteSerialPort(&byte);
         if (r <= 0) continue;
@@ -64,7 +64,7 @@ bool stateMachine(unsigned char control)
                 break;
 
             case 3: // A_RCV
-                if (byte == control)
+                if (byte == controll)
                     state = 4;
                 else if (byte == FLAG)
                     state = 2;
@@ -73,7 +73,7 @@ bool stateMachine(unsigned char control)
                 break;
 
             case 4: // C_RCV
-                if (byte == (A1 ^ control))
+                if (byte == (A1 ^ controll))
                     state = 5;
                 else if (byte == FLAG)
                     state = 2;
@@ -92,6 +92,8 @@ bool stateMachine(unsigned char control)
                 break;
         }
     }
+
+    return FALSE;
 }
 
 ////////////////////////////////////////////////
@@ -124,16 +126,17 @@ int llopen(LinkLayer connectionParameters)
             writeBytesSerialPort(BUFF_SET, BUF_SIZE);
             printf("SET frame sent\n");
 
-            TIMEOUT = 0;
+            timeout = FALSE;
             alarm(connectionParameters.timeout);
 
             unsigned char byte;
-            while (!TIMEOUT && !UA_received) {
-                if (stateMachine(C2)) {
-                    printf("UA frame received. Connection established!\n");
-                    UA_received = 1;
-                    alarm(0);
-                }
+            
+            if (stateMachine(C2)) {
+                printf("UA frame received. Connection established!\n");
+                UA_received = 1;
+                alarm(0);
+            } else {
+                printf("Timeout reached, retrying...\n");
             }
 
             if (!UA_received)
