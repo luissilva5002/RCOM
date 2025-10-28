@@ -3,7 +3,6 @@
 #include "link_layer.h"
 #include "serial_port.h"
 
-
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -27,7 +26,6 @@ volatile bool timeout = FALSE;
 volatile int UA_received = 0;
 int alarmCount = 0;
 
-
 void alarmHandler(int signo)
 {
     timeout = TRUE;
@@ -37,6 +35,7 @@ void alarmHandler(int signo)
 
 typedef enum { START, FLAG_RCV, A_RCV, C_RCV, BCC_OK } State;
 
+//máquina de estados para rx e tx
 bool stateMachine(unsigned char controll)
 {
     unsigned char byte;
@@ -111,12 +110,14 @@ int llopen(LinkLayer connectionParameters)
     struct sigaction act;
     memset(&act, 0, sizeof(act));
     act.sa_handler = alarmHandler;
+
     if (sigaction(SIGALRM, &act, NULL) == -1) {
         perror("sigaction");
         closeSerialPort();
         return -1;
     }
 
+    // protocolo de conexão
     if (connectionParameters.role == LlTx) {
         printf("Transmitter: sending SET frame...\n");
         alarmCount = 0;
@@ -130,7 +131,7 @@ int llopen(LinkLayer connectionParameters)
             alarm(connectionParameters.timeout);
 
             unsigned char byte;
-            
+
             if (stateMachine(C2)) {
                 printf("UA frame received. Connection established!\n");
                 UA_received = 1;
