@@ -98,6 +98,9 @@ bool stateMachine(unsigned char controll)
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
+
+LinkLayer conParams; // Adicionei isto para ser usado na llwrite()
+
 int llopen(LinkLayer connectionParameters)
 {
     // abrir porta
@@ -105,6 +108,7 @@ int llopen(LinkLayer connectionParameters)
         perror("openSerialPort");
         return -1;
     }
+    conParams = connectionParameters;
 
     // configurar handler
     struct sigaction act;
@@ -170,9 +174,106 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 // LLWRITE / LLREAD / LLCLOSE (a implementar depois)
 ////////////////////////////////////////////////
+
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    return 0;
+    if (buf == NULL || bufSize <= 0) {
+        printf("[llwrite] Erro: buffer inválido.\n");
+        return -1;
+    }
+    
+    unsigned char A = A1;
+    unsigned char C = 0x00; 
+    unsigned char BCC1 = A ^ C;
+
+   
+    unsigned char BCC2 = 0x00;
+    for (int i = 0; i < bufSize; i++)
+        BCC2 ^= buf[i];
+
+    //////////////////////////////////////////////////////////////
+    // Construção do frame com byte stuffing
+    //////////////////////////////////////////////////////////////
+    unsigned char stuffedData[2 * BUF_SIZE]; 
+    int stuffedIndex = 0;
+
+    
+    stuffedData[stuffedIndex++] = FLAG;
+
+    
+    if (A == FLAG) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5E; }
+    else if (A == 0x7D) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5D; }
+    else stuffedData[stuffedIndex++] = A;
+
+    
+    if (C == FLAG) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5E; }
+    else if (C == 0x7D) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5D; }
+    else stuffedData[stuffedIndex++] = C;
+
+    // BCC1
+    if (BCC1 == FLAG) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5E; }
+    else if (BCC1 == 0x7D) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5D; }
+    else stuffedData[stuffedIndex++] = BCC1;
+
+    // Dados (com stuffing)
+    for (int i = 0; i < bufSize; i++) {
+        if (buf[i] == FLAG) {
+            stuffedData[stuffedIndex++] = 0x7D;
+            stuffedData[stuffedIndex++] = 0x5E;
+        } else if (buf[i] == 0x7D) {
+            stuffedData[stuffedIndex++] = 0x7D;
+            stuffedData[stuffedIndex++] = 0x5D;
+        } else {
+            stuffedData[stuffedIndex++] = buf[i];
+        }
+    }
+
+   
+    if (BCC2 == FLAG) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5E; }
+    else if (BCC2 == 0x7D) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5D; }
+    else stuffedData[stuffedIndex++] = BCC2;
+
+    
+    stuffedData[stuffedIndex++] = FLAG;
+
+    //------------------------------------------------------------
+    // Envio e retransmissão
+    //------------------------------------------------------------
+    alarmCount = 0;
+    bool ackReceived = FALSE;
+    timeout = FALSE;
+
+    printf("[llwrite] Frame pronto (%d bytes após stuffing)\n", stuffedIndex);
+
+    while (alarmCount < conParams.nRetransmissions && !ackReceived)
+    {
+        // Envia frame pela porta série
+        writeBytesSerialPort(stuffedData, stuffedIndex);
+        printf("[llwrite] I-frame enviado (tentativa %d)\n", alarmCount + 1);
+
+        // Ativa o timeout
+        timeout = FALSE;
+        alarm(conParams.timeout);
+
+        // Espera uma resposta de controlo (UA / RR)
+        if (stateMachine(C2)) {
+            printf("[llwrite] ✅ Confirmação recebida (UA/RR)\n");
+            ackReceived = TRUE;
+            alarm(0);
+        } else {
+            printf("[llwrite] ⚠️ Timeout, reenviando...\n");
+        }
+
+        alarmCount++;
+    }
+
+    if (!ackReceived) {
+        printf("[llwrite] ❌ Falha após %d tentativas — sem ACK.\n", alarmCount);
+        return -1;
+    }
+
+    printf("[llwrite] Envio concluído com sucesso (%d bytes payload).\n", bufSize);
+    return bufSize;
 }
 
 int llread(unsigned char *packet)
