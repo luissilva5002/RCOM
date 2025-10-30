@@ -39,3 +39,10 @@ Instructions to Run the Project
     5.1. Run receiver and transmitter again
     5.2. Quickly move to the cable program console and press 0 for unplugging the cable, 2 to add noise, and 1 to normal
     5.3. Check if the file received matches the file sent, even with cable disconnections or with noise
+
+
+
+
+Compile command:
+
+gcc main.c application_layer.c link_layer.c serial_port.c -o main

@@ -1,8 +1,38 @@
 // Link layer header.
 // DO NOT CHANGE THIS FILE
 
+#include <stdbool.h>
+
 #ifndef _LINK_LAYER_H_
 #define _LINK_LAYER_H_
+
+#define _POSIX_SOURCE 1  // POSIX compliant source
+
+#define FALSE 0
+#define TRUE  1
+
+#define BAUDRATE  B38400
+#define BUF_SIZE 5
+
+extern int fd;
+extern struct termios oldtio;
+
+extern volatile int TIMEOUT;
+extern volatile int UA_received;
+extern volatile int alarmCount;
+
+// Protótipo da função
+void alarmHandler(int signo);
+
+extern const unsigned char FLAG;
+extern const unsigned char A1;
+extern const unsigned char C1;
+extern const unsigned char C2;
+extern const unsigned char BCC1;
+extern const unsigned char BCC2;
+
+extern unsigned char BUFF_SET[BUF_SIZE];
+extern unsigned char BUFF_UA[BUF_SIZE];
 
 typedef enum
 {
@@ -26,6 +56,9 @@ typedef struct
 // MISC
 #define FALSE 0
 #define TRUE 1
+
+bool rxstateMachine();
+bool txstateMachine();
 
 // Open a connection using the "port" parameters defined in struct linkLayer.
 // Return 0 on success or -1 on error.
