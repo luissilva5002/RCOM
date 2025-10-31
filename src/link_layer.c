@@ -1,5 +1,4 @@
 // Link layer protocol implementation
-
 #include "link_layer.h"
 #include "serial_port.h"
 
@@ -35,7 +34,7 @@ void alarmHandler(int signo)
 
 typedef enum { START, FLAG_RCV, A_RCV, C_RCV, BCC_OK } State;
 
-//máquina de estados para rx e tx
+
 bool stateMachine(unsigned char controll)
 {
     unsigned char byte;
@@ -98,6 +97,8 @@ bool stateMachine(unsigned char controll)
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
+
+LinkLayer conParams;
 int llopen(LinkLayer connectionParameters)
 {
     // abrir porta
@@ -105,6 +106,7 @@ int llopen(LinkLayer connectionParameters)
         perror("openSerialPort");
         return -1;
     }
+    conParams = connectionParameters;
 
     // configurar handler
     struct sigaction act;
@@ -170,15 +172,334 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 // LLWRITE / LLREAD / LLCLOSE (a implementar depois)
 ////////////////////////////////////////////////
+
+
+
+
+////////////////////////////////////////////////
+// LLWRITE — State Machine integrada
+////////////////////////////////////////////////
+
+
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    return 0;
+    if (buf == NULL || bufSize <= 0) {
+        printf("[llwrite] Erro: buffer inválido.\n");
+        return -1;
+    }
+
+    static int Ns = 0; // número de sequência (0 ou 1)
+
+    unsigned char A = A1;
+    unsigned char C = (Ns << 6); // bit 6 = Ns
+    unsigned char BCC1 = A ^ C;
+
+    unsigned char BCC2 = 0x00;
+    for (int i = 0; i < bufSize; i++)
+        BCC2 ^= buf[i];
+
+    //////////////////////////////////////////////////////////////
+    // Construção do frame com byte stuffing
+    //////////////////////////////////////////////////////////////
+    unsigned char stuffedData[2 * BUF_SIZE];
+    int stuffedIndex = 0;
+
+    stuffedData[stuffedIndex++] = FLAG;
+
+    // A
+    if (A == FLAG) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5E; }
+    else if (A == 0x7D) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5D; }
+    else stuffedData[stuffedIndex++] = A;
+
+    // C
+    if (C == FLAG) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5E; }
+    else if (C == 0x7D) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5D; }
+    else stuffedData[stuffedIndex++] = C;
+
+    // BCC1
+    if (BCC1 == FLAG) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5E; }
+    else if (BCC1 == 0x7D) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5D; }
+    else stuffedData[stuffedIndex++] = BCC1;
+
+    // Dados (com stuffing)
+    for (int i = 0; i < bufSize; i++) {
+        if (buf[i] == FLAG) {
+            stuffedData[stuffedIndex++] = 0x7D;
+            stuffedData[stuffedIndex++] = 0x5E;
+        } else if (buf[i] == 0x7D) {
+            stuffedData[stuffedIndex++] = 0x7D;
+            stuffedData[stuffedIndex++] = 0x5D;
+        } else {
+            stuffedData[stuffedIndex++] = buf[i];
+        }
+    }
+
+    // BCC2
+    if (BCC2 == FLAG) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5E; }
+    else if (BCC2 == 0x7D) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5D; }
+    else stuffedData[stuffedIndex++] = BCC2;
+
+    
+    stuffedData[stuffedIndex++] = FLAG;
+
+    //////////////////////////////////////////////////////////////
+    // Envio e retransmissão
+    //////////////////////////////////////////////////////////////
+    alarmCount = 0;
+    bool ackReceived = FALSE;
+    timeout = FALSE;
+
+    printf("[llwrite] Frame I(%d) pronto (%d bytes após stuffing)\n", Ns, stuffedIndex);
+
+    while (alarmCount < conParams.nRetransmissions && !ackReceived)
+    {
+        writeBytesSerialPort(stuffedData, stuffedIndex);
+        printf("[llwrite] I-frame (Ns=%d) enviado (tentativa %d)\n", Ns, alarmCount + 1);
+
+        timeout = FALSE;
+        alarm(conParams.timeout);
+
+        //--------------------------------------------------
+        // INLINE STATE MACHINE 
+        //--------------------------------------------------
+        unsigned char byte, ctrl = 0;
+        int state = 0;
+
+        while (!timeout && !ackReceived)
+        {
+            int r = readByteSerialPort(&byte);
+            if (r <= 0) continue;
+
+            switch (state)
+            {
+                case 0: // START
+                    if (byte == FLAG) state = 1;
+                    break;
+
+                case 1: // FLAG_RCV
+                    if (byte == A1) state = 2;
+                    else if (byte != FLAG) state = 0;
+                    break;
+
+                case 2: // A_RCV
+                    if (byte == 0x05 || byte == 0x85 ||  // RR(0)/RR(1)
+                        byte == 0x01 || byte == 0x81 ||  // REJ(0)/REJ(1)
+                        byte == 0x07)                    // UA
+                    {
+                        ctrl = byte;
+                        state = 3;
+                    }
+                    else if (byte == FLAG)
+                        state = 1;
+                    else
+                        state = 0;
+                    break;
+
+                case 3: // C_RCV
+                    if (byte == (A1 ^ ctrl))
+                        state = 4;
+                    else if (byte == FLAG)
+                        state = 1;
+                    else
+                        state = 0;
+                    break;
+
+                case 4: // BCC_OK
+                    if (byte == FLAG) {
+                        
+                        alarm(0);
+                        printf("[llwrite] Supervisão recebida (C=0x%02X)\n", ctrl);
+
+                        if (ctrl == 0x05 || ctrl == 0x85) { // RR(0) / RR(1)
+                            printf("[llwrite] ✅ RR recebido — ACK OK\n");
+                            ackReceived = TRUE;
+                        }
+                        else if (ctrl == 0x01 || ctrl == 0x81) { // REJ(0) / REJ(1)
+                            printf("[llwrite] ⚠️ REJ recebido — reenviando frame\n");
+                            ackReceived = FALSE;
+                        }
+                        else if (ctrl == 0x07) { // UA
+                            printf("[llwrite] ✅ UA recebido — ligação confirmada\n");
+                            ackReceived = TRUE;
+                        }
+                        state = 5;
+                    } else state = 0;
+                    break;
+            }
+
+            if (state == 5) break;
+        }
+        //--------------------------------------------------
+
+        if (!ackReceived)
+            printf("[llwrite] ⏱️ Timeout ou REJ — reenviando...\n");
+
+        alarmCount++;
+    }
+
+    if (!ackReceived) {
+        printf("[llwrite] ❌ Falha após %d tentativas — sem ACK.\n", alarmCount);
+        return -1;
+    }
+
+    Ns = 1 - Ns; 
+    printf("[llwrite] ✅ Envio concluído com sucesso (%d bytes payload)\n", bufSize);
+    return bufSize;
 }
+
+
+////////////////////////////////////////////////
+// LLREAD — State Machine integrada
+////////////////////////////////////////////////
+
+typedef enum {
+    STATE_START,
+    STATE_FLAG_RCV,
+    STATE_A_RCV,
+    STATE_C_RCV,
+    STATE_BCC1_OK,
+    STATE_DATA,
+    STATE_DATA_ESC,
+    STATE_STOP
+} FrameState;
 
 int llread(unsigned char *packet)
 {
-    return 0;
+    if (packet == NULL) {
+        printf("[llread] Erro: ponteiro nulo.\n");
+        return -1;
+    }
+
+    unsigned char byte;
+    unsigned char frame[2 * BUF_SIZE]; 
+    int frameIndex = 0;
+
+    FrameState state = STATE_START;
+    unsigned char A = 0, C = 0;
+    bool escapeNext = false;
+
+    printf("[llread] Aguardando I-frame...\n");
+
+    while (state != STATE_STOP) {
+        int r = readByteSerialPort(&byte);
+        if (r <= 0) continue;
+
+        switch (state) {
+            case STATE_START:
+                if (byte == FLAG)
+                    state = STATE_FLAG_RCV;
+                break;
+
+            case STATE_FLAG_RCV:
+                if (byte == A1) {
+                    A = byte;
+                    state = STATE_A_RCV;
+                } else if (byte != FLAG)
+                    state = STATE_START;
+                break;
+
+            case STATE_A_RCV:
+                if (byte == 0x00 || byte == 0x40) {
+                    C = byte;
+                    state = STATE_C_RCV;
+                } else if (byte == FLAG)
+                    state = STATE_FLAG_RCV;
+                else
+                    state = STATE_START;
+                break;
+
+            case STATE_C_RCV:
+                if (byte == (A ^ C))
+                    state = STATE_BCC1_OK;
+                else if (byte == FLAG)
+                    state = STATE_FLAG_RCV;
+                else
+                    state = STATE_START;
+                break;
+
+            case STATE_BCC1_OK:
+                if (byte == FLAG)
+                    state = STATE_START; 
+                else if (byte == 0x7D)
+                    state = STATE_DATA_ESC; 
+                else {
+                    frame[frameIndex++] = byte;
+                    state = STATE_DATA;
+                }
+                break;
+
+            case STATE_DATA:
+                if (byte == FLAG)
+                    state = STATE_STOP;
+                else if (byte == 0x7D)
+                    state = STATE_DATA_ESC;
+                else
+                    frame[frameIndex++] = byte;
+                break;
+
+            case STATE_DATA_ESC:
+                if (byte == 0x5E) frame[frameIndex++] = 0x7E;
+                else if (byte == 0x5D) frame[frameIndex++] = 0x7D;
+                else {
+                    printf("[llread] Erro: sequência de stuffing inválida (0x%02X)\n", byte);
+                    state = STATE_START;
+                    frameIndex = 0;
+                }
+                state = STATE_DATA;
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    printf("[llread] Frame completo recebido (%d bytes úteis)\n", frameIndex);
+
+    if (frameIndex < 2) {
+        printf("[llread] Frame demasiado curto.\n");
+        return -1;
+    }
+
+    unsigned char BCC2 = frame[frameIndex - 1];
+    unsigned char calcBCC2 = 0x00;
+    for (int i = 0; i < frameIndex - 1; i++)
+        calcBCC2 ^= frame[i];
+
+    bool bcc2_ok = (BCC2 == calcBCC2);
+ 
+    int Ns = (C >> 6) & 0x01;
+    static int expectedNs = 0;
+
+    if (bcc2_ok && Ns == expectedNs) {
+        printf("[llread] ✅ Frame válido, BCC2 OK, Ns=%d\n", Ns);
+
+        
+        memcpy(packet, frame, frameIndex - 1);
+
+        
+        unsigned char RR[5] = {FLAG, A1, (expectedNs ? 0x05 : 0x85), A1 ^ (expectedNs ? 0x05 : 0x85), FLAG};
+        writeBytesSerialPort(RR, 5);
+        printf("[llread] RR enviado (espera Ns=%d)\n", 1 - expectedNs);
+
+        expectedNs = 1 - expectedNs;
+        return frameIndex - 1;
+    }
+    else if (!bcc2_ok) {
+        printf("[llread] ❌ Erro em BCC2 (esperado 0x%02X, obtido 0x%02X)\n", calcBCC2, BCC2);
+        unsigned char REJ[5] = {FLAG, A1, (expectedNs ? 0x81 : 0x01), A1 ^ (expectedNs ? 0x81 : 0x01), FLAG};
+        writeBytesSerialPort(REJ, 5);
+        printf("[llread] REJ enviado (Ns=%d)\n", expectedNs);
+        return -1;
+    }
+    else {
+        
+        printf("[llread] ⚠️ Frame duplicado Ns=%d, reenviando RR(%d)\n", Ns, expectedNs);
+        unsigned char RR[5] = {FLAG, A1, (expectedNs ? 0x85 : 0x05), A1 ^ (expectedNs ? 0x85 : 0x05), FLAG};
+        writeBytesSerialPort(RR, 5);
+        return 0;
+    }
 }
+
 
 int llclose()
 {
