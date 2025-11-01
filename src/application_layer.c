@@ -3,13 +3,18 @@
 #include "application_layer.h"
 #include "link_layer.h"
 #include "serial_port.h"
+#include "packet_helper.h"
 
 #include <stdio.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
 #include <termios.h>
+
+#define DATA_BUFFER_SIZE 1021
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
@@ -24,6 +29,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     connectionParameters.timeout = timeout;
     connectionParameters.role = (strcmp(role, "tx") == 0) ? LlTx : LlRx;
 
+    // Open the data link layer connection
     printf("Opening connection on %s as %s...\n", serialPort, role);
     int status = llopen(connectionParameters);
 
@@ -33,6 +39,113 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     }
 
     printf("Link layer connection established successfully!\n");
+
+    switch (connectionParameters.role) {
+        case LlTx: {
+            // -------------------
+            // TRANSMITTER
+            // -------------------
+
+            FILE *file = fopen(filename, "rb");
+            if (!file) {
+                perror("[App] Error opening file");
+                exit(1);
+            }
+            printf("[App] Successfully opened file: %s\n", filename);
+
+            // Store current position (should be 0)
+            long startPos = ftell(file);
+            if (startPos == -1L) {
+                perror("[App] ftell failed at start");
+                exit(1);
+            }
+
+            // Seek to end
+            if (fseek(file, 0, SEEK_END) != 0) {
+                perror("[App] fseek failed");
+                exit(1);
+            }
+
+            // Calculate file size
+            long endPos = ftell(file);
+            if (endPos == -1L) {
+                perror("[App] ftell failed at end");
+                exit(1);
+            }
+
+            uint32_t fileSize = (uint32_t)(endPos - startPos);
+            printf("[App] File size: %u bytes\n", fileSize);
+
+            // Return to starting position
+            if (fseek(file, startPos, SEEK_SET) != 0) {
+                perror("[App] fseek failed to reset position");
+                exit(1);
+            }
+
+
+            // Send START control packet
+            sendControlPacket(CF_START, fileSize, filename);
+
+            // Send DATA packets
+            uint8_t buffer[DATA_BUFFER_SIZE];
+            size_t bytesRead;
+            while ((bytesRead = fread(buffer, 1, DATA_BUFFER_SIZE, file)) > 0) {
+                sendDataPacket(buffer, (uint16_t)bytesRead);
+                printf("Sent data packet");
+            }
+
+            // Send END control packet
+            sendControlPacket(CF_END, fileSize, filename);
+
+            fclose(file);
+            printf("[App] File transmission complete!\n");
+            break;
+        }
+
+        case LlRx: {
+            // -------------------
+            // RECEIVER
+            // -------------------
+            uint32_t fileSize = 0;
+            char receivedFilename[MAX_FILENAME_SIZE + 1];
+            uint8_t controlType;
+            uint8_t dataBuffer[DATA_BUFFER_SIZE];
+
+            // Wait for START control packet
+            while (1) {
+                if (receivePacket(&controlType, dataBuffer, &fileSize, receivedFilename) == 0 &&
+                    controlType == CF_START)
+                    break;
+            }
+
+            FILE *out = fopen(filename, "wb");
+            if (!out) {
+                perror("[App] Error creating output file");
+                exit(1);
+            }
+
+            uint32_t bytesReceived = 0;
+            while (1) {
+                int len = receivePacket(&controlType, dataBuffer, &fileSize, receivedFilename);
+                if (len < 0) continue;
+
+                if (controlType == CF_END) break;
+                if (controlType == CF_DATA) {
+                    fwrite(dataBuffer, 1, len, out);
+                    bytesReceived += len;
+                }
+            }
+
+            fclose(out);
+            printf("[App] File received successfully: %u bytes written to %s\n",
+                   bytesReceived, receivedFilename);
+            break;
+        }
+
+        default:
+            fprintf(stderr, "[App] Unknown role!\n");
+            exit(1);
+    }
 
     // Close connection
     printf("Closing connection...\n");
