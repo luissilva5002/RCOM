@@ -45,17 +45,48 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             // -------------------
             // TRANSMITTER
             // -------------------
+
             FILE *file = fopen(filename, "rb");
             if (!file) {
                 perror("[App] Error opening file");
                 llclose(connectionParameters);
                 exit(1);
             }
+            printf("[App] Successfully opened file: %s\n", filename);
 
-            // Get file size
-            fseek(file, 0, SEEK_END);
-            uint32_t fileSize = ftell(file);
-            fseek(file, 0, SEEK_SET);
+            // Store current position (should be 0)
+            long startPos = ftell(file);
+            if (startPos == -1L) {
+                perror("[App] ftell failed at start");
+                llclose(connectionParameters);
+                exit(1);
+            }
+
+            // Seek to end
+            if (fseek(file, 0, SEEK_END) != 0) {
+                perror("[App] fseek failed");
+                llclose(connectionParameters);
+                exit(1);
+            }
+
+            // Calculate file size
+            long endPos = ftell(file);
+            if (endPos == -1L) {
+                perror("[App] ftell failed at end");
+                llclose(connectionParameters);
+                exit(1);
+            }
+
+            uint32_t fileSize = (uint32_t)(endPos - startPos);
+            printf("[App] File size: %u bytes\n", fileSize);
+
+            // Return to starting position
+            if (fseek(file, startPos, SEEK_SET) != 0) {
+                perror("[App] fseek failed to reset position");
+                llclose(connectionParameters);
+                exit(1);
+            }
+
 
             // Send START control packet
             sendControlPacket(CF_START, fileSize, filename);
@@ -65,6 +96,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             size_t bytesRead;
             while ((bytesRead = fread(buffer, 1, DATA_BUFFER_SIZE, file)) > 0) {
                 sendDataPacket(buffer, (uint16_t)bytesRead);
+                printf("Sent data packet");
             }
 
             // Send END control packet
@@ -91,7 +123,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                     break;
             }
 
-            FILE *out = fopen(receivedFilename, "wb");
+            FILE *out = fopen(filename, "wb");
             if (!out) {
                 perror("[App] Error creating output file");
                 llclose(connectionParameters);

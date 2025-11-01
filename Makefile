@@ -5,46 +5,45 @@
 CC = gcc
 CFLAGS = -Wall
 
-BIN = bin/
-CABLE = cable/
 SRC = src/
+INCLUDE = include/
+BIN = bin/
+CABLE_DIR = cable/
+
+BAUD_RATE = 9600
 
 TX_SERIAL_PORT = /dev/ttyS10
 RX_SERIAL_PORT = /dev/ttyS11
-BAUD_RATE = 9600
 
 TX_FILE = penguin.gif
 RX_FILE = penguin-received.gif
 
-# Main
+# Targets
 .PHONY: all
-all: main cable
+all: $(BIN)/main $(BIN)/cable
 
-main: $(SRC)/*.c
-	$(CC) $(CFLAGS) -o $(BIN)/$@ $^
+$(BIN)/main: main.c $(SRC)/*.c
+	$(CC) $(CFLAGS) -o $@ $^ -I$(INCLUDE) -lm
+
+$(BIN)/cable: $(CABLE_DIR)/cable.c
+	$(CC) $(CFLAGS) -o $@ $^
 
 .PHONY: run_tx
-run_tx: main
-	./$(BIN)/main $(TX_SERIAL_PORT) $(BAUD_RATE) tx $(TX_FILE)
+run_tx: $(BIN)/main
+	./$(BIN)/main $(TX_SERIAL_PORT) $(BAUD_RATE) tx $(TX_FILE) -lm
 
 .PHONY: run_rx
-run_rx: main
-	./$(BIN)/main $(RX_SERIAL_PORT) $(BAUD_RATE) rx $(RX_FILE)
+run_rx: $(BIN)/main
+	./$(BIN)/main $(RX_SERIAL_PORT) $(BAUD_RATE) rx $(RX_FILE) -lm
+
+.PHONY: run_cable
+run_cable: $(BIN)/cable
+	sudo ./$(BIN)/cable
 
 .PHONY: check_files
 check_files:
 	diff -s $(TX_FILE) $(RX_FILE) || exit 0
 
-# Cable
-cable: $(CABLE)/cable.c
-	$(CC) $(CFLAGS) -o $(BIN)/$@ $^
-
-.PHONY: run_cable
-run_cable: cable
-	@which -s socat || { echo "Error: Could not find socat. Install socat and try again."; exit 1; }
-	sudo ./$(BIN)/cable
-
-# Clean
 .PHONY: clean
 clean:
 	rm -f $(BIN)/main

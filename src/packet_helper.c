@@ -46,6 +46,11 @@ int sendControlPacket(uint8_t controlType, uint32_t fileSize, const char *filena
 // ==========================================================
 int sendDataPacket(const uint8_t *data, uint16_t dataSize)
 {
+    if (dataSize > MAX_PACKET_SIZE - 3) {
+        fprintf(stderr, "[sendDataPacket] dataSize too large: %u\n", dataSize);
+        return -1;
+    }
+
     uint8_t packet[MAX_PACKET_SIZE];
     if (dataSize > 65535)
         return -1; // size too large
@@ -84,12 +89,12 @@ int receivePacket(uint8_t *controlType,
     *controlType = packet[0];
 
     if (*controlType == CF_DATA) {
-        // Data packet
-        uint16_t K = packet[2] + (packet[1] << 8);
-        memcpy(dataBuffer, packet + 3, K);
-        printf("[App] Received DATA packet (%d bytes)\n", K);
-        return K;
+        uint16_t dataLen = len; // llread returns payload size without BCC2
+        memcpy(dataBuffer, packet, dataLen);
+        printf("[App] Received DATA packet (%d bytes)\n", dataLen);
+        return dataLen;
     }
+
     else if (*controlType == CF_START || *controlType == CF_END) {
         // Control packet (parse TLV)
         int pos = 1;

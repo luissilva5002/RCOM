@@ -1,6 +1,7 @@
 // Link layer protocol implementation
 #include "link_layer.h"
 #include "serial_port.h"
+#include "packet_helper.h"
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -132,8 +133,6 @@ int llopen(LinkLayer connectionParameters)
             timeout = FALSE;
             alarm(connectionParameters.timeout);
 
-            unsigned char byte;
-
             if (stateMachine(C2)) {
                 printf("UA frame received. Connection established!\n");
                 UA_received = 1;
@@ -153,7 +152,6 @@ int llopen(LinkLayer connectionParameters)
     }
     else if (connectionParameters.role == LlRx) {
         printf("Receiver: waiting for SET frame...\n");
-        unsigned char byte;
         int connected = 0;
 
         while (!connected) {
@@ -202,7 +200,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     // Construção do frame com byte stuffing
     //////////////////////////////////////////////////////////////
 
-    unsigned char stuffedData[2 * BUF_SIZE];
+    unsigned char stuffedData[2 * MAX_PACKET_SIZE];
     int stuffedIndex = 0;
 
     stuffedData[stuffedIndex++] = FLAG;
@@ -373,12 +371,11 @@ int llread(unsigned char *packet)
     }
 
     unsigned char byte;
-    unsigned char frame[2 * BUF_SIZE]; 
+    unsigned char frame[2 * MAX_PACKET_SIZE]; 
     int frameIndex = 0;
 
     FrameState state = STATE_START;
     unsigned char A = 0, C = 0;
-    bool escapeNext = false;
 
     printf("[llread] Aguardando I-frame...\n");
 
