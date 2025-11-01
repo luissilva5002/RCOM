@@ -201,6 +201,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     //////////////////////////////////////////////////////////////
     // Construção do frame com byte stuffing
     //////////////////////////////////////////////////////////////
+
     unsigned char stuffedData[2 * BUF_SIZE];
     int stuffedIndex = 0;
 
@@ -262,6 +263,7 @@ int llwrite(const unsigned char *buf, int bufSize)
         //--------------------------------------------------
         // INLINE STATE MACHINE 
         //--------------------------------------------------
+
         unsigned char byte, ctrl = 0;
         int state = 0;
 
@@ -472,10 +474,8 @@ int llread(unsigned char *packet)
 
     if (bcc2_ok && Ns == expectedNs) {
         printf("[llread] ✅ Frame válido, BCC2 OK, Ns=%d\n", Ns);
-
         
         memcpy(packet, frame, frameIndex - 1);
-
         
         unsigned char RR[5] = {FLAG, A1, (expectedNs ? 0x05 : 0x85), A1 ^ (expectedNs ? 0x05 : 0x85), FLAG};
         writeBytesSerialPort(RR, 5);
