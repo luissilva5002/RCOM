@@ -22,7 +22,7 @@ const unsigned char DISC = 0x0B;
 
 unsigned char BUFF_SET[BUF_SIZE] = {FLAG, A1, C1, BCC1, FLAG};
 unsigned char BUFF_UA[BUF_SIZE]  = {FLAG, A1, C2, BCC2, FLAG};
-unsigned char BUFF_DISC[BUF_SIZE] = {FLAG, A1, 0xFF, A1^DISC, FLAG};
+unsigned char BUFF_DISC[BUF_SIZE] = {FLAG, A1, DISC, A1^DISC, FLAG};
 
 typedef enum { START = 1, FLAG_RCV, A_RCV, C_RCV, BCC_OK } State;
 
@@ -273,7 +273,7 @@ int llclose(LinkLayer connectionParameters)
             timeout = FALSE;
             alarm(connectionParameters.timeout);
 
-            if (Close_stateMachine(DISC)) {
+            if (Close_stateMachine(DISC, connectionParameters)) {
                 printf("DISC received. Sending UA...\n");
                 writeBytesSerialPort(BUFF_UA, BUF_SIZE);
                 connected = FALSE;
@@ -290,18 +290,30 @@ int llclose(LinkLayer connectionParameters)
     } 
 
     else if (connectionParameters.role == LlRx) {
+
         printf("Receiver: waiting for DISC...\n");
-        if (Close_stateMachine(DISC, connectionParameters)) {
+        while (alarmCount < connectionParameters.nRetransmissions && connected) { 
 
-            printf("DISC received. Sending DISC back...\n");
-            writeBytesSerialPort(BUFF_DISC, BUF_SIZE);
+            timeout = FALSE;
+            alarm(connectionParameters.timeout);
 
-            printf("Waiting for UA...\n");
-            Close_stateMachine(C_UA, connectionParameters);
-        }
+            if (Close_stateMachine(DISC, connectionParameters)) {
+
+                printf("DISC received. Sending DISC back...\n");
+                writeBytesSerialPort(BUFF_DISC, BUF_SIZE);
+
+                printf("Waiting for UA...\n");
+                Close_stateMachine(C_UA, connectionParameters);
+
+                connected = FALSE;
+                alarm(0);
+
+            } else {
+                printf("Timeout reached. Retrying...\n");
+            }
+        }    
     }
 
-    connected = FALSE;
     closeSerialPort();
     return 0;
 }

@@ -36,6 +36,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
     // Close connection
     printf("Closing connection...\n");
-    llclose();
+    llclose(connectionParameters);
     printf("Connection closed.\n");
 }
