@@ -1,47 +1,34 @@
-// Link layer header.
-// DO NOT CHANGE THIS FILE
-
-#include <stdbool.h>
-
 #ifndef _LINK_LAYER_H_
 #define _LINK_LAYER_H_
 
-#define _POSIX_SOURCE 1  // POSIX compliant source
+#include <stdbool.h>
+#include <termios.h>
 
-#define FALSE 0
-#define TRUE  1
-
-#define BAUDRATE  B38400
 #define BUF_SIZE 5
+#define MAX_PACKET_SIZE 1024
 
-extern int fd;
-extern struct termios oldtio;
+// Control/flag bytes
+extern const unsigned char FLAG;
+extern const unsigned char A1;
+extern const unsigned char C_SET;
+extern const unsigned char C_UA;
+extern const unsigned char DISC;
 
-extern volatile int TIMEOUT;
+// Prebuilt frames
+extern unsigned char BUFF_SET[BUF_SIZE];
+extern unsigned char BUFF_UA[BUF_SIZE];
+extern unsigned char BUFF_DISC[BUF_SIZE];
+
+// State machine globals
+extern volatile bool timeout;
+extern volatile bool connected;
 extern volatile int UA_received;
 extern volatile int alarmCount;
 
-// Protótipo da função
-void alarmHandler(int signo);
+// LinkLayer role
+typedef enum { LlTx, LlRx } LinkLayerRole;
 
-extern const unsigned char FLAG;
-extern const unsigned char A1;
-extern const unsigned char C1;
-extern const unsigned char C2;
-extern const unsigned char BCC1;
-extern const unsigned char BCC2;
-
-extern unsigned char BUFF_SET[BUF_SIZE];
-extern unsigned char BUFF_UA[BUF_SIZE];
-
-typedef enum
-{
-    LlTx,
-    LlRx,
-} LinkLayerRole;
-
-typedef struct
-{
+typedef struct {
     char serialPort[50];
     LinkLayerRole role;
     int baudRate;
@@ -49,32 +36,12 @@ typedef struct
     int timeout;
 } LinkLayer;
 
-// Size of maximum acceptable payload.
-// Maximum number of bytes that application layer should send to link layer.
-#define MAX_PAYLOAD_SIZE 1000
+// Function prototypes
+void alarmHandler(int signo);
 
-// MISC
-#define FALSE 0
-#define TRUE 1
-
-bool stateMachine(unsigned char controll);
-bool Close_stateMachine(unsigned char controll, LinkLayer connectionParameters);
-
-
-// Open a connection using the "port" parameters defined in struct linkLayer.
-// Return 0 on success or -1 on error.
 int llopen(LinkLayer connectionParameters);
-
-// Send data in buf with size bufSize.
-// Return number of chars written, or -1 on error.
 int llwrite(const unsigned char *buf, int bufSize);
-
-// Receive data in packet.
-// Return number of chars read, or -1 on error.
 int llread(unsigned char *packet);
-
-// Close previously opened connection and print transmission statistics in the console.
-// Return 0 on success or -1 on error.
-int llclose();
+int llclose(LinkLayer connectionParameters);
 
 #endif // _LINK_LAYER_H_

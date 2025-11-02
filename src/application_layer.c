@@ -42,9 +42,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
     switch (connectionParameters.role) {
         case LlTx: {
-            // -------------------
-            // TRANSMITTER
-            // -------------------
 
             FILE *file = fopen(filename, "rb");
             if (!file) {
@@ -103,9 +100,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
 
         case LlRx: {
-            // -------------------
-            // RECEIVER
-            // -------------------
+            
             uint32_t fileSize = 0;
             char receivedFilename[MAX_FILENAME_SIZE + 1];
             uint8_t controlType;
@@ -150,5 +145,4 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     // Close connection
     printf("Closing connection...\n");
     llclose(connectionParameters);
-    printf("Connection closed.\n");
 }

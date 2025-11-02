@@ -2,6 +2,7 @@
 #include "link_layer.h"
 #include "serial_port.h"
 #include "packet_helper.h"
+#include "state_machine.h"
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -12,25 +13,18 @@
 #include <termios.h>
 
 const unsigned char FLAG = 0x7E;
-const unsigned char A1 = 0x03;
-const unsigned char C1 = 0x03;
-const unsigned char C2 = 0x07;
+const unsigned char A1   = 0x03;
+const unsigned char C_SET = 0x03;
 const unsigned char C_UA = 0x07;
-const unsigned char BCC1 = A1 ^ C1;
-const unsigned char BCC2 = A1 ^ C2;
 const unsigned char DISC = 0x0B;
 
-unsigned char BUFF_SET[BUF_SIZE] = {FLAG, A1, C1, BCC1, FLAG};
-unsigned char BUFF_UA[BUF_SIZE]  = {FLAG, A1, C2, BCC2, FLAG};
-unsigned char BUFF_DISC[BUF_SIZE] = {FLAG, A1, 0xFF, A1^DISC, FLAG};
+unsigned char BUFF_SET[BUF_SIZE] = {FLAG, A1, C_SET, A1 ^ C_SET, FLAG};
+unsigned char BUFF_UA[BUF_SIZE]  = {FLAG, A1, C_UA, A1 ^ C_UA, FLAG};
+unsigned char BUFF_DISC[BUF_SIZE]= {FLAG, A1, DISC, A1 ^ DISC, FLAG};
 
-typedef enum { START = 1, FLAG_RCV, A_RCV, C_RCV, BCC_OK } State;
-
-volatile bool timeout = FALSE;
-volatile bool connected = FALSE;
-
+volatile bool timeout = false;
+volatile bool connected = false;
 volatile int UA_received = 0;
-volatile bool DISC_received = FALSE;
 volatile int alarmCount = 0;
 
 ////////////////////////////////////////////////
@@ -39,132 +33,9 @@ volatile int alarmCount = 0;
 
 void alarmHandler(int signo)
 {
-    timeout = TRUE;
+    timeout = true;
     alarmCount++;
     printf("Timeout! Tentativa %d\n", alarmCount);
-}
-
-////////////////////////////////////////////////
-// STATE MACHINES
-////////////////////////////////////////////////
-
-bool stateMachine(unsigned char controll)
-{
-    unsigned char byte;
-    unsigned char state = 1;
-
-    while ((!timeout && (controll == C2)) || (controll == C1))
-    {
-        int r = readByteSerialPort(&byte);
-        if (r <= 0) continue;
-
-        printf("Read byte: 0x%02X | Current state: %d\n", byte, state);
-
-        switch (state)
-        {
-            case 1: // START
-                if (byte == FLAG)
-                    state = 2;
-                break;
-
-            case 2: // FLAG_RCV
-                if (byte == A1)
-                    state = 3;
-                else if (byte != FLAG)
-                    state = 1;
-                break;
-
-            case 3: // A_RCV
-                if (byte == controll)
-                    state = 4;
-                else if (byte == FLAG)
-                    state = 2;
-                else
-                    state = 1;
-                break;
-
-            case 4: // C_RCV
-                if (byte == (A1 ^ controll))
-                    state = 5;
-                else if (byte == FLAG)
-                    state = 2;
-                else
-                    state = 1;
-                break;
-
-            case 5: // BCC_OK
-                if (byte == FLAG)
-                {
-                    printf("✅ Valid frame detected!\n");
-                    return true;
-                }
-                else
-                    state = 1;
-                break;
-        }
-    }
-
-    return FALSE;
-}
-
-bool Close_stateMachine(unsigned char controll, LinkLayer connectionParameters)
-{
-    unsigned char byte;
-    unsigned char state = 1;
-
-
-    while (!timeout)
-    {
-        int r = readByteSerialPort(&byte);
-        if (r <= 0) continue;
-
-        printf("Read byte: 0x%02X | Current state: %d\n", byte, state);
-
-        switch (state)
-        {
-            case 1: // START
-                if (byte == FLAG)
-                    state = 2;
-                break;
-
-            case 2: // FLAG_RCV
-                if (byte == A1)
-                    state = 3;
-                else if (byte != FLAG)
-                    state = 1;
-                break;
-
-            case 3: // A_RCV
-                if (byte == controll)
-                    state = 4;
-                else if (byte == FLAG)
-                    state = 2;
-                else
-                    state = 1;
-                break;
-
-            case 4: // C_RCV
-                if (byte == (A1 ^ controll))
-                    state = 5;
-                else if (byte == FLAG)
-                    state = 2;
-                else
-                    state = 1;
-                break;
-
-            case 5: // BCC_OK
-                if (byte == FLAG)
-                {
-                    printf("Valid closing frame detected!\n");
-                    return true;
-                }
-                else
-                    state = 1;
-                break;
-        }
-    }
-
-    return FALSE;
 }
 
 ////////////////////////////////////////////////
@@ -204,10 +75,10 @@ int llopen(LinkLayer connectionParameters)
             writeBytesSerialPort(BUFF_SET, BUF_SIZE);
             printf("SET frame sent\n");
 
-            timeout = FALSE;
+            timeout = false;
             alarm(connectionParameters.timeout);
 
-            if (stateMachine(C2)) {
+            if (/*stateMachine(C_UA)*/ stateMachineLLOpen(C_UA)) {
                 printf("UA frame received. Connection established!\n");
                 connected = true;
                 UA_received = 1;
@@ -228,11 +99,11 @@ int llopen(LinkLayer connectionParameters)
     else if (connectionParameters.role == LlRx) {
         printf("Receiver: waiting for SET frame...\n");
 
-        if (stateMachine(C1)) {
+        if (/*stateMachine(C_SET)*/ stateMachineLLOpen(C_SET)) {
             printf("SET frame received. Sending UA...\n");
             writeBytesSerialPort(BUFF_UA, BUF_SIZE);
             printf("UA sent. Connection established!\n");
-            connected = TRUE;
+            connected = true;
         }
         
     }
@@ -241,9 +112,8 @@ int llopen(LinkLayer connectionParameters)
 }
 
 ////////////////////////////////////////////////
-// LLWRITE — State Machine integrada
+// LLWRITE
 ////////////////////////////////////////////////
-
 
 int llwrite(const unsigned char *buf, int bufSize)
 {
@@ -263,7 +133,7 @@ int llwrite(const unsigned char *buf, int bufSize)
         BCC2 ^= buf[i];
 
     //////////////////////////////////////////////////////////////
-    // Construção do frame com byte stuffing
+    // BYTE STUFFING
     //////////////////////////////////////////////////////////////
 
     unsigned char stuffedData[2 * MAX_PACKET_SIZE];
@@ -286,7 +156,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     else if (BCC1 == 0x7D) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5D; }
     else stuffedData[stuffedIndex++] = BCC1;
 
-    // Dados (com stuffing)
+    // DATA
     for (int i = 0; i < bufSize; i++) {
         if (buf[i] == FLAG) {
             stuffedData[stuffedIndex++] = 0x7D;
@@ -308,11 +178,12 @@ int llwrite(const unsigned char *buf, int bufSize)
     stuffedData[stuffedIndex++] = FLAG;
 
     //////////////////////////////////////////////////////////////
-    // Envio e retransmissão
+    // TRANSMISSION
     //////////////////////////////////////////////////////////////
+
     alarmCount = 0;
-    bool ackReceived = FALSE;
-    timeout = FALSE;
+    bool ackReceived = false;
+    timeout = false;
 
     printf("[llwrite] Frame I(%d) pronto (%d bytes após stuffing)\n", Ns, stuffedIndex);
 
@@ -321,84 +192,28 @@ int llwrite(const unsigned char *buf, int bufSize)
         writeBytesSerialPort(stuffedData, stuffedIndex);
         printf("[llwrite] I-frame (Ns=%d) enviado (tentativa %d)\n", Ns, alarmCount + 1);
 
-        timeout = FALSE;
+        timeout = false;
         alarm(conParams.timeout);
+        unsigned char ctrl;
 
-        //--------------------------------------------------
-        // INLINE STATE MACHINE 
-        //--------------------------------------------------
+        int result = stateMachineLLWrite(&ctrl);
 
-        unsigned char byte, ctrl = 0;
-        int state = 0;
-
-        while (!timeout && !ackReceived)
-        {
-            int r = readByteSerialPort(&byte);
-            if (r <= 0) continue;
-
-            switch (state)
-            {
-                case 0: // START
-                    if (byte == FLAG) state = 1;
-                    break;
-
-                case 1: // FLAG_RCV
-                    if (byte == A1) state = 2;
-                    else if (byte != FLAG) state = 0;
-                    break;
-
-                case 2: // A_RCV
-                    if (byte == 0x05 || byte == 0x85 ||  // RR(0)/RR(1)
-                        byte == 0x01 || byte == 0x81 ||  // REJ(0)/REJ(1)
-                        byte == 0x07)                    // UA
-                    {
-                        ctrl = byte;
-                        state = 3;
-                    }
-                    else if (byte == FLAG)
-                        state = 1;
-                    else
-                        state = 0;
-                    break;
-
-                case 3: // C_RCV
-                    if (byte == (A1 ^ ctrl))
-                        state = 4;
-                    else if (byte == FLAG)
-                        state = 1;
-                    else
-                        state = 0;
-                    break;
-
-                case 4: // BCC_OK
-                    if (byte == FLAG) {
-                        
-                        alarm(0);
-                        printf("[llwrite] Supervisão recebida (C=0x%02X)\n", ctrl);
-
-                        if (ctrl == 0x05 || ctrl == 0x85) { // RR(0) / RR(1)
-                            printf("[llwrite] ✅ RR recebido — ACK OK\n");
-                            ackReceived = TRUE;
-                        }
-                        else if (ctrl == 0x01 || ctrl == 0x81) { // REJ(0) / REJ(1)
-                            printf("[llwrite] ⚠️ REJ recebido — reenviando frame\n");
-                            ackReceived = FALSE;
-                        }
-                        else if (ctrl == 0x07) { // UA
-                            printf("[llwrite] ✅ UA recebido — ligação confirmada\n");
-                            ackReceived = TRUE;
-                        }
-                        state = 5;
-                    } else state = 0;
-                    break;
-            }
-
-            if (state == 5) break;
+        if (result == 1) {          // RR or UA
+            ackReceived = true;
+            printf("[llwrite] Supervisão recebida (C=0x%02X)\n", ctrl);
+            if (ctrl == 0x05 || ctrl == 0x85) 
+                printf("[llwrite] ✅ RR recebido — ACK OK\n");
+            else if (ctrl == 0x07) 
+                printf("[llwrite] ✅ UA recebido — ligação confirmada\n");
         }
-        //--------------------------------------------------
-
-        if (!ackReceived)
-            printf("[llwrite] ⏱️ Timeout ou REJ — reenviando...\n");
+        else if (result == 0) {     // REJ
+            ackReceived = false;
+            printf("[llwrite] ⚠️ REJ recebido — reenviando frame\n");
+        }
+        else {                      //timeout / error 
+            ackReceived = false;
+            printf("[llwrite] ⏱️ Timeout ou erro — reenviando frame\n");
+        }
 
         alarmCount++;
     }
@@ -413,21 +228,9 @@ int llwrite(const unsigned char *buf, int bufSize)
     return bufSize;
 }
 
-
 ////////////////////////////////////////////////
-// LLREAD — State Machine integrada
+// LLREAD
 ////////////////////////////////////////////////
-
-typedef enum {
-    STATE_START,
-    STATE_FLAG_RCV,
-    STATE_A_RCV,
-    STATE_C_RCV,
-    STATE_BCC1_OK,
-    STATE_DATA,
-    STATE_DATA_ESC,
-    STATE_STOP
-} FrameState;
 
 int llread(unsigned char *packet)
 {
@@ -436,94 +239,11 @@ int llread(unsigned char *packet)
         return -1;
     }
 
-    unsigned char byte;
     unsigned char frame[2 * MAX_PACKET_SIZE]; 
-    int frameIndex = 0;
-
-    FrameState state = STATE_START;
     unsigned char A = 0, C = 0;
-
-    printf("[llread] Aguardando I-frame...\n");
-
-    while (state != STATE_STOP) {
-        int r = readByteSerialPort(&byte);
-        if (r <= 0) continue;
-
-        switch (state) {
-            case STATE_START:
-                if (byte == FLAG)
-                    state = STATE_FLAG_RCV;
-                break;
-
-            case STATE_FLAG_RCV:
-                if (byte == A1) {
-                    A = byte;
-                    state = STATE_A_RCV;
-                } else if (byte != FLAG)
-                    state = STATE_START;
-                break;
-
-            case STATE_A_RCV:
-                if (byte == 0x00 || byte == 0x40) {
-                    C = byte;
-                    state = STATE_C_RCV;
-                } else if (byte == FLAG)
-                    state = STATE_FLAG_RCV;
-                else
-                    state = STATE_START;
-                break;
-
-            case STATE_C_RCV:
-                if (byte == (A ^ C))
-                    state = STATE_BCC1_OK;
-                else if (byte == FLAG)
-                    state = STATE_FLAG_RCV;
-                else
-                    state = STATE_START;
-                break;
-
-            case STATE_BCC1_OK:
-                if (byte == FLAG)
-                    state = STATE_START; 
-                else if (byte == 0x7D)
-                    state = STATE_DATA_ESC; 
-                else {
-                    frame[frameIndex++] = byte;
-                    state = STATE_DATA;
-                }
-                break;
-
-            case STATE_DATA:
-                if (byte == FLAG)
-                    state = STATE_STOP;
-                else if (byte == 0x7D)
-                    state = STATE_DATA_ESC;
-                else
-                    frame[frameIndex++] = byte;
-                break;
-
-            case STATE_DATA_ESC:
-                if (byte == 0x5E) frame[frameIndex++] = 0x7E;
-                else if (byte == 0x5D) frame[frameIndex++] = 0x7D;
-                else {
-                    printf("[llread] Erro: sequência de stuffing inválida (0x%02X)\n", byte);
-                    state = STATE_START;
-                    frameIndex = 0;
-                }
-                state = STATE_DATA;
-                break;
-
-            default:
-                break;
-        }
-    }
-
-    printf("[llread] Frame completo recebido (%d bytes úteis)\n", frameIndex);
-
-    if (frameIndex < 2) {
-        printf("[llread] Frame demasiado curto.\n");
-        return -1;
-    }
+    int frameIndex = 0;
+    
+    if (!stateMachineLLRead(frame, &frameIndex, &A, &C)) return -1;
 
     unsigned char BCC2 = frame[frameIndex - 1];
     unsigned char calcBCC2 = 0x00;
@@ -563,7 +283,6 @@ int llread(unsigned char *packet)
     }
 }
 
-
 ////////////////////////////////////////////////
 // LLCLOSE
 ////////////////////////////////////////////////
@@ -584,13 +303,13 @@ int llclose(LinkLayer connectionParameters)
             writeBytesSerialPort(BUFF_DISC, BUF_SIZE);
             printf("DISC frame sent\n");
 
-            timeout = FALSE;
+            timeout = false;
             alarm(connectionParameters.timeout);
 
-            if (Close_stateMachine(DISC, connectionParameters)) {
+            if (stateMachineLLOpen(DISC)) {
                 printf("DISC received. Sending UA...\n");
                 writeBytesSerialPort(BUFF_UA, BUF_SIZE);
-                connected = FALSE;
+                connected = false;
                 alarm(0);
             } else {
                 printf("Timeout reached. Retrying...\n");
@@ -608,18 +327,18 @@ int llclose(LinkLayer connectionParameters)
         printf("Receiver: waiting for DISC...\n");
         while (alarmCount < connectionParameters.nRetransmissions && connected) { 
 
-            timeout = FALSE;
+            timeout = false;
             alarm(connectionParameters.timeout);
 
-            if (Close_stateMachine(DISC, connectionParameters)) {
+            if (stateMachineLLOpen(DISC)) {
 
                 printf("DISC received. Sending DISC back...\n");
                 writeBytesSerialPort(BUFF_DISC, BUF_SIZE);
 
                 printf("Waiting for UA...\n");
-                Close_stateMachine(C_UA, connectionParameters);
+                stateMachineLLOpen(C_UA);
 
-                connected = FALSE;
+                connected = false;
                 alarm(0);
 
             } else {
@@ -629,5 +348,6 @@ int llclose(LinkLayer connectionParameters)
     }
 
     closeSerialPort();
+    printf("Connection closed.\n");
     return 0;
 }

@@ -89,10 +89,20 @@ int receivePacket(uint8_t *controlType,
     *controlType = packet[0];
 
     if (*controlType == CF_DATA) {
-        uint16_t dataLen = len; // llread returns payload size without BCC2
-        memcpy(dataBuffer, packet, dataLen);
-        printf("[App] Received DATA packet (%d bytes)\n", dataLen);
-        return dataLen;
+        if (len < 3) {
+            printf("[App] ⚠️ DATA packet too short\n");
+            return -1;
+        }
+
+        uint16_t dataLen = (packet[1] << 8) | packet[2];  // L2 + L1
+        if (dataLen + 3 > len) {
+            printf("[App] ⚠️ DATA length mismatch (declared=%d, got=%d)\n", dataLen, len);
+            dataLen = len - 3; // fallback
+        }
+
+        memcpy(dataBuffer, &packet[3], dataLen);  // ✅ copiar só os dados reais
+        printf("[App] Received DATA packet (%d bytes payload)\n", dataLen);
+        return dataLen;  // devolve apenas o tamanho útil
     }
 
     else if (*controlType == CF_START || *controlType == CF_END) {
