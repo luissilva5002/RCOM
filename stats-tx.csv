@@ -1,0 +1,2 @@
+Baudrate,Payload,CommTime(s),MeasuredBaudrate,Efficiency,TotalBytes,DataBytes,Frames,REJ,Timeouts,FrameErrorRatio
+9600,1024,11.749,7517.86,0.783,11187,11041,13,0,0,0.000

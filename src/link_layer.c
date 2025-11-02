@@ -3,6 +3,7 @@
 #include "serial_port.h"
 #include "packet_helper.h"
 #include "state_machine.h"
+#include "statistics.h" 
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -36,6 +37,7 @@ void alarmHandler(int signo)
     timeout = true;
     alarmCount++;
     printf("Timeout! Tentativa %d\n", alarmCount);
+    statistics.totalTimeouts++; // 🟩 Contabiliza timeout
 }
 
 ////////////////////////////////////////////////
@@ -53,6 +55,10 @@ int llopen(LinkLayer connectionParameters)
         return -1;
     }
     conParams = connectionParameters;
+
+    // 🟩 Inicializar estatísticas
+    initStatistics(&connectionParameters);
+    clock_gettime(CLOCK_MONOTONIC, &statistics.start);
 
     // configurar handler
     struct sigaction act;
@@ -105,7 +111,6 @@ int llopen(LinkLayer connectionParameters)
             printf("UA sent. Connection established!\n");
             connected = true;
         }
-        
     }
 
     return 1; // sucesso
@@ -174,7 +179,6 @@ int llwrite(const unsigned char *buf, int bufSize)
     else if (BCC2 == 0x7D) { stuffedData[stuffedIndex++] = 0x7D; stuffedData[stuffedIndex++] = 0x5D; }
     else stuffedData[stuffedIndex++] = BCC2;
 
-    
     stuffedData[stuffedIndex++] = FLAG;
 
     //////////////////////////////////////////////////////////////
@@ -184,6 +188,11 @@ int llwrite(const unsigned char *buf, int bufSize)
     alarmCount = 0;
     bool ackReceived = false;
     timeout = false;
+
+    // 🟩 Atualiza estatísticas
+    statistics.totalFrames++;
+    statistics.totalBytes += stuffedIndex;
+    statistics.dataBytes += bufSize;
 
     printf("[llwrite] Frame I(%d) pronto (%d bytes após stuffing)\n", Ns, stuffedIndex);
 
@@ -207,10 +216,12 @@ int llwrite(const unsigned char *buf, int bufSize)
                 printf("[llwrite] ✅ UA recebido — ligação confirmada\n");
         }
         else if (result == 0) {     // REJ
+            statistics.totalRej++; // 🟩 Contabiliza REJ
             ackReceived = false;
             printf("[llwrite] ⚠️ REJ recebido — reenviando frame\n");
         }
-        else {                      //timeout / error 
+        else {                      // timeout / error 
+            statistics.totalTimeouts++; // 🟩 Contabiliza timeout
             ackReceived = false;
             printf("[llwrite] ⏱️ Timeout ou erro — reenviando frame\n");
         }
@@ -255,6 +266,10 @@ int llread(unsigned char *packet)
     int Ns = (C >> 6) & 0x01;
     static int expectedNs = 0;
 
+    statistics.totalFrames++;
+    statistics.totalBytes += frameIndex;
+    statistics.dataBytes += frameIndex - 1;
+
     if (bcc2_ok && Ns == expectedNs) {
         printf("[llread] ✅ Frame válido, BCC2 OK, Ns=%d\n", Ns);
         
@@ -268,6 +283,7 @@ int llread(unsigned char *packet)
         return frameIndex - 1;
     }
     else if (!bcc2_ok) {
+        statistics.badFrames++; // 🟩 Contabiliza frame corrompida
         printf("[llread] ❌ Erro em BCC2 (esperado 0x%02X, obtido 0x%02X)\n", calcBCC2, BCC2);
         unsigned char REJ[5] = {FLAG, A1, (expectedNs ? 0x81 : 0x01), A1 ^ (expectedNs ? 0x81 : 0x01), FLAG};
         writeBytesSerialPort(REJ, 5);
@@ -275,7 +291,6 @@ int llread(unsigned char *packet)
         return -1;
     }
     else {
-        
         printf("[llread] ⚠️ Frame duplicado Ns=%d, reenviando RR(%d)\n", Ns, expectedNs);
         unsigned char RR[5] = {FLAG, A1, (expectedNs ? 0x85 : 0x05), A1 ^ (expectedNs ? 0x85 : 0x05), FLAG};
         writeBytesSerialPort(RR, 5);
@@ -346,6 +361,10 @@ int llclose(LinkLayer connectionParameters)
             }
         }    
     }
+
+    clock_gettime(CLOCK_MONOTONIC, &statistics.end);
+    printStatistics();
+    storeStatistics();
 
     closeSerialPort();
     printf("Connection closed.\n");

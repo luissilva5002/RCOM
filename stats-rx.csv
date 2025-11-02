@@ -1,0 +1,2 @@
+Baudrate,Payload,CommTime(s),MeasuredBaudrate,Efficiency,TotalBytes,DataBytes,Frames,Good,Bad,FrameErrorRatio
+9600,1024,124.384,710.13,0.074,11054,11041,13,13,0,0.000
