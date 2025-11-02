@@ -10,11 +10,6 @@
 #define N_TRIES 3
 #define TIMEOUT 4
 
-// Arguments:
-//   $1: /dev/ttySxx
-//   $2: baud rate
-//   $3: tx | rx
-//   $4: filename
 int main(int argc, char *argv[])
 {
     if (argc < 5)
